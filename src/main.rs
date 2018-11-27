@@ -2,13 +2,17 @@ extern crate sdl2;
 
 pub mod complex;
 use complex::*;
+pub mod position;
+use position::*;
 
-use std::thread;
+use std::{thread, time};
 use std::sync::mpsc;
 
 use sdl2::pixels::Color;
 use sdl2::rect::Point;
 use sdl2::event::Event;
+use sdl2::render::WindowCanvas;
+use sdl2::keyboard::Keycode;
 
 const THREADS: usize = 4;
 
@@ -16,32 +20,20 @@ const WIDTH: i32 = 1280;
 const HEIGHT: i32 = 720;
 const MAX_ITER: u32 = 1000;
 
+/*
 const WHITE: Color = Color {
     r: 255,
     g: 255,
     b: 255,
     a: 255,
-};
+};*/
+
 const BLACK: Color = Color {
     r: 0,
     g: 0,
     b: 0,
     a: 255,
 };
-
-#[derive(Copy, Clone)]
-struct Position {
-    x_window: f32,
-    x_offset: f32,
-    y_window: f32,
-    y_offset: f32,
-}
-
-impl Position {
-    fn new(x_window: f32, x_offset: f32, y_window: f32, y_offset: f32) -> Position {
-        Position { x_window, x_offset, y_window, y_offset }
-    }
-}
 
 fn main() {
     //setup window
@@ -54,6 +46,63 @@ fn main() {
     let mut canvas = window.into_canvas().build().unwrap();
     let mut events = ctx.event_pump().unwrap();
 
+    canvas.set_draw_color(BLACK);
+    canvas.clear();
+    canvas.present();
+
+    let mut pos = Position::new(3.0, -0.5, 2.0, 0.0);
+
+    draw_screen(&mut canvas, pos);
+
+    'event_loop: loop {
+        for event in events.poll_iter() {
+            match event {
+                Event::Quit { .. } => {
+                    break 'event_loop;
+                }
+                Event::MouseButtonDown {
+                    timestamp,
+                    window_id,
+                    which,
+                    mouse_btn,
+                    x,
+                    y,
+                } => {
+                    pos.set_center(x, y);
+                    draw_screen(&mut canvas, pos);
+                }
+                Event::KeyDown {
+                    timestamp,
+                    window_id,
+                    keycode,
+                    scancode,
+                    keymod,
+                    repeat,
+                } => {
+                    if keycode.is_some() {
+                        match keycode.unwrap() {
+                            Keycode::Minus => {
+                                pos.zoom_out();
+                                draw_screen(&mut canvas, pos);
+                            }
+                            Keycode::Equals => {
+                                pos.zoom_in();
+                                draw_screen(&mut canvas, pos);
+                            }
+                            Keycode::Escape => {
+                                break 'event_loop;
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
+fn draw_screen(canvas: &mut WindowCanvas, pos: Position) {
     canvas.set_draw_color(BLACK);
     canvas.clear();
     canvas.present();
@@ -73,8 +122,6 @@ fn main() {
 
     let (tx, rx) = mpsc::channel();
 
-    let pos = Position::new(3.0, -0.5, 2.0, 0.0);
-
     for vec in points {
         let tx = tx.clone();
         thread::spawn(move || {
@@ -88,32 +135,19 @@ fn main() {
     //and rx blocks forever
     drop(tx);
 
+    let sixteen_millis = time::Duration::from_millis(16);
+
     for (point, color) in rx {
         canvas.set_draw_color(color);
         canvas.draw_point(point).unwrap();
     }
 
     canvas.present();
-
-    'event_loop: loop {
-        for event in events.poll_iter() {
-            match event {
-                Event::Quit { .. } => {
-                    break 'event_loop;
-                }
-                _ => {}
-            }
-        }
-    }
 }
 
 fn calc_color(x: i32, y: i32, pos: Position) -> (Point, Color) {
     let point = Point::new(x, y);
-
-    let c = Complex::new(
-        pos.x_offset + (x - WIDTH / 2) as f32 * pos.x_window / (WIDTH as f32),
-        pos.y_offset + (y - HEIGHT / 2) as f32 * pos.y_window / (HEIGHT as f32),
-    );
+    let c = pos.into_complex(x, y);
 
     let mut z = c;
     let mut iterations = 0;
@@ -125,13 +159,13 @@ fn calc_color(x: i32, y: i32, pos: Position) -> (Point, Color) {
 
     let color = match iterations {
         MAX_ITER => BLACK,
-        0 => WHITE,
+        0 => BLACK,
         _ => {
-            let ratio = iterations as f32 * MAX_ITER as f32;
+            let ratio = iterations as f64 * MAX_ITER as f64;
             let red: u8 = (255.0 * ratio) as u8;
             Color::RGB(red, 0, 0)
         }
     };
 
-    return (point, color);
+    (point, color)
 }

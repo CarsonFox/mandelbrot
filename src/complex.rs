@@ -1,11 +1,11 @@
 #[derive(Copy, Clone)]
 pub struct Complex {
-    a: f32,
-    b: f32,
+    pub a: f64,
+    pub b: f64,
 }
 
 impl Complex {
-    pub fn new(a: f32, b: f32) -> Complex {
+    pub fn new(a: f64, b: f64) -> Complex {
         Complex { a, b }
     }
 
