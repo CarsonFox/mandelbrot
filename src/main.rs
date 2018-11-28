@@ -1,32 +1,12 @@
+extern crate num_complex;
+use num_complex::Complex64 as Complex;
+
 extern crate sdl2;
-
-pub mod complex;
-use complex::*;
-pub mod position;
-use position::*;
-
-use std::{thread, time};
-use std::sync::mpsc;
-
+use sdl2::event::Event;
+use sdl2::keyboard::Keycode;
 use sdl2::pixels::Color;
 use sdl2::rect::Point;
-use sdl2::event::Event;
 use sdl2::render::WindowCanvas;
-use sdl2::keyboard::Keycode;
-
-const THREADS: usize = 4;
-
-const WIDTH: i32 = 1280;
-const HEIGHT: i32 = 720;
-const MAX_ITER: u32 = 1000;
-
-/*
-const WHITE: Color = Color {
-    r: 255,
-    g: 255,
-    b: 255,
-    a: 255,
-};*/
 
 const BLACK: Color = Color {
     r: 0,
@@ -35,12 +15,20 @@ const BLACK: Color = Color {
     a: 255,
 };
 
+const WHITE: Color = Color {
+    r: 255,
+    g: 255,
+    b: 255,
+    a: 255,
+};
+
 fn main() {
-    //setup window
+    let width = 640;
+    let height = 480;
     let ctx = sdl2::init().unwrap();
     let video_ctx = ctx.video().unwrap();
     let window = video_ctx
-        .window("Mandelbrot set", WIDTH as u32, HEIGHT as u32)
+        .window("Mandelbrot set", width, height)
         .build()
         .unwrap();
     let mut canvas = window.into_canvas().build().unwrap();
@@ -50,51 +38,19 @@ fn main() {
     canvas.clear();
     canvas.present();
 
-    let mut pos = Position::new(3.0, -0.5, 2.0, 0.0);
+    println!("{:?}", gradient(WHITE, BLACK, 10));
 
-    draw_screen(&mut canvas, pos);
+    let _ = (5..1);
 
     'event_loop: loop {
         for event in events.poll_iter() {
             match event {
-                Event::Quit { .. } => {
+                Event::Quit { .. }
+                | Event::KeyDown {
+                    keycode: Some(Keycode::Escape),
+                    ..
+                } => {
                     break 'event_loop;
-                }
-                Event::MouseButtonDown {
-                    timestamp,
-                    window_id,
-                    which,
-                    mouse_btn,
-                    x,
-                    y,
-                } => {
-                    pos.set_center(x, y);
-                    draw_screen(&mut canvas, pos);
-                }
-                Event::KeyDown {
-                    timestamp,
-                    window_id,
-                    keycode,
-                    scancode,
-                    keymod,
-                    repeat,
-                } => {
-                    if keycode.is_some() {
-                        match keycode.unwrap() {
-                            Keycode::Minus => {
-                                pos.zoom_out();
-                                draw_screen(&mut canvas, pos);
-                            }
-                            Keycode::Equals => {
-                                pos.zoom_in();
-                                draw_screen(&mut canvas, pos);
-                            }
-                            Keycode::Escape => {
-                                break 'event_loop;
-                            }
-                            _ => {}
-                        }
-                    }
                 }
                 _ => {}
             }
@@ -102,70 +58,35 @@ fn main() {
     }
 }
 
-fn draw_screen(canvas: &mut WindowCanvas, pos: Position) {
-    canvas.set_draw_color(BLACK);
-    canvas.clear();
-    canvas.present();
-
-    let mut points = Vec::with_capacity(THREADS);
-    for _ in 0..THREADS {
-        points.push(Vec::new());
-    }
-
-    let mut i: usize = 0;
-    for x in 0..WIDTH {
-        for y in 0..HEIGHT {
-            points[i].push((x, y));
-            i = (i + 1) % THREADS;
-        }
-    }
-
-    let (tx, rx) = mpsc::channel();
-
-    for vec in points {
-        let tx = tx.clone();
-        thread::spawn(move || {
-            for (x, y) in vec {
-                tx.send(calc_color(x, y, pos)).unwrap();
-            }
+fn gradient(begin: Color, end: Color, steps: u32) -> Vec<Color> {
+    let mut colors = vec![begin];
+    let begin = (begin.r as f32, begin.g as f32, begin.b as f32);
+    let steps_f = steps as f32;
+    let step_by = (
+        (end.r as f32 - begin.0) / steps_f,
+        (end.g as f32 - begin.1) / steps_f,
+        (end.b as f32 - begin.2) / steps_f,
+    );
+    for i in 1..steps - 1 {
+        let i = i as f32;
+        colors.push(Color {
+            r: (begin.0 + i * step_by.0) as u8,
+            g: (begin.1 + i * step_by.1) as u8,
+            b: (begin.1 + i * step_by.1) as u8,
+            a: 255,
         });
     }
-
-    //If I don't drop tx here, it never goes out of scope
-    //and rx blocks forever
-    drop(tx);
-
-    let sixteen_millis = time::Duration::from_millis(16);
-
-    for (point, color) in rx {
-        canvas.set_draw_color(color);
-        canvas.draw_point(point).unwrap();
-    }
-
-    canvas.present();
+    colors.push(end);
+    colors
 }
 
-fn calc_color(x: i32, y: i32, pos: Position) -> (Point, Color) {
-    let point = Point::new(x, y);
-    let c = pos.into_complex(x, y);
-
-    let mut z = c;
-    let mut iterations = 0;
-
-    while !z.escapes() && iterations < MAX_ITER {
-        z.iterate(&c);
-        iterations += 1;
-    }
-
-    let color = match iterations {
-        MAX_ITER => BLACK,
-        0 => BLACK,
-        _ => {
-            let ratio = iterations as f64 * MAX_ITER as f64;
-            let red: u8 = (255.0 * ratio) as u8;
-            Color::RGB(red, 0, 0)
+fn count(c: Complex, max: u32) -> u32 {
+    let mut z = Complex { re: 0.0, im: 0.0 };
+    for i in 0..max {
+        z = z * z + c;
+        if z.norm() > 2.0 {
+            return i;
         }
-    };
-
-    (point, color)
+    }
+    max
 }
